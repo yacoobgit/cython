@@ -26,6 +26,8 @@ cimport libc.stdio as stdio
 cdef extern from "Python.h":
     ctypedef int Py_intptr_t
 
+#cdef extern from "numpy/npy_no_deprecated_api.h": pass
+
 cdef extern from "numpy/arrayobject.h":
     ctypedef Py_intptr_t npy_intp
     ctypedef size_t npy_uintp
@@ -54,6 +56,7 @@ cdef extern from "numpy/arrayobject.h":
         NPY_VOID
         NPY_DATETIME
         NPY_TIMEDELTA
+        NPY_HALF
         NPY_NTYPES
         NPY_NOTYPE
 
@@ -90,6 +93,14 @@ cdef extern from "numpy/arrayobject.h":
         NPY_ANYORDER
         NPY_CORDER
         NPY_FORTRANORDER
+        NPY_KEEPORDER
+
+    ctypedef enum NPY_CASTING:
+        NPY_NO_CASTING
+        NPY_EQUIV_CASTING
+        NPY_SAFE_CASTING
+        NPY_SAME_KIND_CASTING
+        NPY_UNSAFE_CASTING
 
     ctypedef enum NPY_CLIPMODE:
         NPY_CLIP
@@ -113,6 +124,33 @@ cdef extern from "numpy/arrayobject.h":
     ctypedef enum NPY_SEARCHSIDE:
         NPY_SEARCHLEFT
         NPY_SEARCHRIGHT
+
+    enum:
+        NPY_ARRAY_C_CONTIGUOUS
+        NPY_ARRAY_F_CONTIGUOUS
+        NPY_ARRAY_OWNDATA
+        NPY_ARRAY_FORCECAST
+        NPY_ARRAY_ENSURECOPY
+        NPY_ARRAY_ENSUREARRAY
+        NPY_ARRAY_ELEMENTSTRIDES
+        NPY_ARRAY_ALIGNED
+        NPY_ARRAY_NOTSWAPPED
+        NPY_ARRAY_WRITEABLE
+        NPY_ARRAY_UPDATEIFCOPY
+        NPY_ARRAY_BEHAVED
+        NPY_ARRAY_BEHAVED_NS
+        NPY_ARRAY_CARRAY
+        NPY_ARRAY_CARRAY_RO
+        NPY_ARRAY_FARRAY
+        NPY_ARRAY_FARRAY_RO
+        NPY_ARRAY_DEFAULT
+        NPY_ARRAY_IN_ARRAY
+        NPY_ARRAY_OUT_ARRAY
+        NPY_ARRAY_INOUT_ARRAY
+        NPY_ARRAY_IN_FARRAY
+        NPY_ARRAY_OUT_FARRAY
+        NPY_ARRAY_INOUT_FARRAY
+        NPY_ARRAY_UPDATE_ALL
 
     enum:
         NPY_C_CONTIGUOUS
@@ -159,6 +197,8 @@ cdef extern from "numpy/arrayobject.h":
         # inside a non-PyObject declaration, so we have to declare it
         # as just a PyObject*.
         PyObject* shape
+
+    ctypedef struct PyArray_Descr
 
     ctypedef class numpy.dtype [object PyArray_Descr]:
         # Use PyDataType_* macros when possible, however there are no macros
@@ -231,11 +271,11 @@ cdef extern from "numpy/arrayobject.h":
                 copy_shape = 0
 
             if ((flags & pybuf.PyBUF_C_CONTIGUOUS == pybuf.PyBUF_C_CONTIGUOUS)
-                and not PyArray_CHKFLAGS(self, NPY_C_CONTIGUOUS)):
+                and not PyArray_CHKFLAGS(self, NPY_ARRAY_C_CONTIGUOUS)):
                 raise ValueError(u"ndarray is not C contiguous")
 
             if ((flags & pybuf.PyBUF_F_CONTIGUOUS == pybuf.PyBUF_F_CONTIGUOUS)
-                and not PyArray_CHKFLAGS(self, NPY_F_CONTIGUOUS)):
+                and not PyArray_CHKFLAGS(self, NPY_ARRAY_F_CONTIGUOUS)):
                 raise ValueError(u"ndarray is not Fortran contiguous")
 
             info.buf = PyArray_DATA(self)
@@ -257,7 +297,7 @@ cdef extern from "numpy/arrayobject.h":
 
             cdef int t
             cdef char* f = NULL
-            cdef dtype descr = self.descr
+            cdef dtype descr = <dtype>PyArray_DESCR(self)
             cdef int offset
 
             cdef bint hasfields = PyDataType_HASFIELDS(descr)
@@ -408,8 +448,8 @@ cdef extern from "numpy/arrayobject.h":
     npy_intp PyArray_DIM(ndarray, size_t)
     npy_intp PyArray_STRIDE(ndarray, size_t)
 
-    # object PyArray_BASE(ndarray) wrong refcount semantics
-    # dtype PyArray_DESCR(ndarray) wrong refcount semantics
+    PyObject* PyArray_BASE(ndarray)
+    PyArray_Descr* PyArray_DESCR(ndarray)
     int PyArray_FLAGS(ndarray)
     npy_intp PyArray_ITEMSIZE(ndarray)
     int PyArray_TYPE(ndarray arr)
@@ -998,10 +1038,11 @@ cdef inline void set_array_base(ndarray arr, object base):
      arr.base = baseptr
 
 cdef inline object get_array_base(ndarray arr):
-    if arr.base is NULL:
+    cdef void* base = PyArray_BASE(arr)
+    if base is NULL:
         return None
     else:
-        return <object>arr.base
+        return <object>base
 
 
 # Versions of the import_* functions which are more suitable for
